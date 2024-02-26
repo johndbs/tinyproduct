@@ -6,9 +6,11 @@ import com.thinkitdevit.tinyproduct.ui.dto.ProductResponse;
 import jakarta.ws.rs.*;
 import jakarta.ws.rs.core.MediaType;
 import jakarta.ws.rs.core.Response;
+import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Controller;
 
 
+@Slf4j
 @Controller
 @Path("/products")
 public class ProductResource {
@@ -26,6 +28,7 @@ public class ProductResource {
     @Path("/{id}")
     @Produces(MediaType.APPLICATION_JSON)
     public Response getProductById(@PathParam("id") long id) {
+        log.info("Fetching product with id: {}", id);
         ProductResponse productResponse =  productMapper.toResponse(productApplicationService.findProductById(id));
         return Response.ok().entity(productResponse).build();
     }

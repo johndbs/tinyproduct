@@ -22,6 +22,7 @@
 		<org.mockito.version>3.12.4</org.mockito.version>
 		<org.mockito.mockito-junit-jupiter.version>5.10.0</org.mockito.mockito-junit-jupiter.version>
 		<org.glassfish.jersey.test-framework.version>3.1.5</org.glassfish.jersey.test-framework.version>
+		<spring-jcl.version>6.1.4</spring-jcl.version>
 	</properties>
 	<dependencies>
 		<dependency>
@@ -50,6 +51,32 @@
 			<version>${org.mapstruct.version}</version>
 		</dependency>
 
+
+		<!-- Logs -->
+		<dependency>
+			<groupId>org.springframework.boot</groupId>
+			<artifactId>spring-boot-starter</artifactId>
+			<exclusions>
+				<exclusion>
+					<groupId>org.springframework.boot</groupId>
+					<artifactId>spring-boot-starter-logging</artifactId>
+				</exclusion>
+			</exclusions>
+		</dependency>
+		<dependency>
+			<groupId>org.springframework.boot</groupId>
+			<artifactId>spring-boot-starter-log4j2</artifactId>
+		</dependency>
+
+		<dependency>
+			<groupId>org.springframework</groupId>
+			<artifactId>spring-jcl</artifactId>
+			<version>${spring-jcl.version}</version>
+		</dependency>
+
+
+
+		<!-- Test -->
 		<dependency>
 			<groupId>org.springframework.boot</groupId>
 			<artifactId>spring-boot-starter-test</artifactId>
