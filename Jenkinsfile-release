@@ -1,0 +1,191 @@
+pipeline{
+    agent any
+    tools{
+        maven 'Maven3'
+        jdk 'jdk-21'
+    }
+    parameters {
+        string(name: 'CURRENT_VERSION', defaultValue: '1.0.0', description: 'The current version of the application')
+        string(name: 'NEXT_VERSION', defaultValue: '1.1.0-SNAPSHOT', description: 'The next version of the application')
+    }
+    environment{
+        /**
+        Add in the Jenkins, the following environment variables:
+            NEXUS_VERSION = "nexus3"
+            NEXUS_PROTOCOL = "http"
+            NEXUS_URL = "nexus:8081"
+            NEXUS_REPOSITORY = "java_app"
+
+            SONAR_URL = "http://sonarqube:9000"
+
+            DOCKER_URL = "https://index.docker.io/v1/"
+            DOCKER_REPOSITORY_NAME = the Docker Hub username
+
+            GIT_AUTHOR_EMAIL = the email of the author for the release
+            GIT_AUTHOR_NAME = the name of the author for the release
+
+        Add in the Jenkins, the following credentials:
+            GITHUB_CRED = the generated credential id for the GitHub
+            NEXUS_CRED = the generated credential id for the Nexus repository
+            SONAR_CRED = the generated credential id for the SonarQube
+            DOCKER_CRED = the generated credential id for the Docker Hub
+        */
+
+
+        GIT_URL = 'https://github.com/johndbs/tinyproduct'
+        GIT_BRANCH_NAME = "master"
+
+
+        MVN_SETTINGS_FILE_NAME = "mvn-nexus-settings"
+        MVN_REPOSITORY_ID = "nexus"
+
+
+
+        SONAR_PROJECT_KEY = 'tinyproduct'
+        SONAR_PROJECT_NAME = 'tinyproduct'
+
+        DOCKER_ARTIFACT_NAME = 'tinyproduct'
+
+    }
+
+
+
+    stages{
+        stage('Checkout'){
+            steps{
+                sh 'echo "Step 1 : Checkout the repository"'
+
+                checkout scm: [
+                    $class: 'GitSCM',
+                    branches: [[name: "*/$GIT_BRANCH_NAME"]],
+                    userRemoteConfigs: [[
+                        url: "$GIT_URL",
+                        credentialsId: 'GITHUB_CRED'
+                    ]]
+                ]
+
+
+                sh "git config user.email $env.GIT_AUTHOR_EMAIL"
+                sh "git config user.name $env.GIT_AUTHOR_NAME"
+
+                echo "Git user.name configured to: $env.GIT_AUTHOR_NAME"
+                echo "Git user.email configured to: $env.GIT_AUTHOR_EMAIL"
+
+                sh "git checkout $env.GIT_BRANCH_NAME"
+            }
+        }
+
+        stage('Prepare Release') {
+            steps {
+                script {
+                    sh 'echo "Step 2 : Preparing the release"'
+
+                    withCredentials([
+                            usernamePassword(credentialsId: 'NEXUS_CRED', usernameVariable: 'NEXUS_USERNAME', passwordVariable: 'NEXUS_PASSWORD'),
+                            usernamePassword(credentialsId: 'GITHUB_CRED', usernameVariable: 'GITHUB_USERNAME', passwordVariable: 'GITHUB_PASSWORD')
+                        ]) {
+                            configFileProvider([configFile(fileId: "$env.MVN_SETTINGS_FILE_NAME", variable: 'MAVEN_SETTINGS_PATH')]) {
+                                sh """
+                                mvn -s $MAVEN_SETTINGS_PATH --batch-mode release:prepare -DreleaseVersion=$CURRENT_VERSION -DdevelopmentVersion=$NEXT_VERSION
+                                """
+                            }
+                        }
+                    }
+            }
+        }
+        stage('Sonar'){
+            steps{
+                sh 'echo "Step 2 : Running SonarQube analysis"'
+                withCredentials([
+                    usernamePassword(credentialsId: 'NEXUS_CRED', usernameVariable: 'NEXUS_USERNAME', passwordVariable: 'NEXUS_PASSWORD'),
+                    string(credentialsId: 'SONAR_CRED', variable: 'SONAR_TOKEN')
+                ]) {
+                    configFileProvider([configFile(fileId: "$env.MVN_SETTINGS_FILE_NAME", variable: 'MAVEN_SETTINGS_PATH')]) {
+                        sh 'mvn -s $MAVEN_SETTINGS_PATH sonar:sonar ' +
+                        '-Dsonar.host.url=$SONAR_URL ' +
+                        '-Dsonar.login=$SONAR_TOKEN ' +
+                        '-Dsonar.projectKey=$SONAR_PROJECT_KEY ' +
+                        '-Dsonar.projectName=$SONAR_PROJECT_NAME ' +
+                        '-Dsonar.coverage.jacoco.xmlReportPaths=target/site/jacoco/jacoco.xml'
+                    }
+
+                }
+            }
+        }
+
+        stage('Release') {
+            steps {
+                script {
+                    sh 'echo "Step 3 : Performing the release"'
+                    withCredentials([
+                        usernamePassword(credentialsId: 'NEXUS_CRED', usernameVariable: 'NEXUS_USERNAME', passwordVariable: 'NEXUS_PASSWORD'),
+                        usernamePassword(credentialsId: 'GITHUB_CRED', usernameVariable: 'GITHUB_USERNAME', passwordVariable: 'GITHUB_PASSWORD')
+                    ]) {
+                        configFileProvider([configFile(fileId: "$env.MVN_SETTINGS_FILE_NAME", variable: 'MAVEN_SETTINGS_PATH')]) {
+                            sh """
+                            mvn -s $MAVEN_SETTINGS_PATH --batch-mode release:perform -Darguments="-DaltDeploymentRepository=nexus::default::http://$NEXUS_URL/repository/$NEXUS_REPOSITORY/"
+                            """
+                        }
+                    }
+                }
+            }
+        }
+
+        stage('Docker build') {
+            steps {
+                script {
+                    sh 'echo "Step 4 : Building the Docker image"'
+                    sh "echo Docker build -t $env.DOCKER_ARTIFACT_NAME:$BUILD_NUMBER ."
+                    withDockerRegistry(toolName: 'docker', credentialsId: 'DOCKER_CRED', url: "$DOCKER_URL") {
+                        sh "docker build -t $env.DOCKER_ARTIFACT_NAME:$BUILD_NUMBER ."
+                        sh "docker tag $env.DOCKER_ARTIFACT_NAME:$BUILD_NUMBER $DOCKER_REPOSITORY_NAME/$env.DOCKER_ARTIFACT_NAME:$BUILD_NUMBER"
+                        sh "docker push $DOCKER_REPOSITORY_NAME/$env.DOCKER_ARTIFACT_NAME:$BUILD_NUMBER"
+                    }
+                }
+            }
+        }
+
+        stage('Docker Push') {
+            steps {
+                script {
+                    sh 'echo "Step 5 : Pushing the Docker image to Docker Hub"'
+                    sh "echo Docker push $DOCKER_REPOSITORY_NAME/$env.DOCKER_ARTIFACT_NAME:$BUILD_NUMBER"
+                    withDockerRegistry(toolName: 'docker', credentialsId: 'DOCKER_CRED', url: "$DOCKER_URL") {
+                        sh "docker push $DOCKER_REPOSITORY_NAME/$env.DOCKER_ARTIFACT_NAME:$BUILD_NUMBER"
+                    }
+                }
+            }
+        }
+
+    }
+
+    post {
+        success {
+            echo 'Release SUCCEDDED'
+
+        }
+        failure {
+            echo 'Release FAILED.'
+            script {
+
+                withCredentials([
+                    usernamePassword(credentialsId: 'NEXUS_CRED', usernameVariable: 'NEXUS_USERNAME', passwordVariable: 'NEXUS_PASSWORD'),
+                    usernamePassword(credentialsId: 'GITHUB_CRED', usernameVariable: 'GITHUB_USERNAME', passwordVariable: 'GITHUB_PASSWORD')
+                ]) {
+                    configFileProvider([configFile(fileId: "$env.MVN_SETTINGS_FILE_NAME", variable: 'MAVEN_SETTINGS_PATH')]) {
+                        sh """
+                        mvn -s $MAVEN_SETTINGS_PATH --batch-mode release:rollback
+                        """
+                    }
+                }
+
+            }
+            echo 'Rollback completed'
+        }
+        always {
+            echo 'Cleaning up workspace'
+            cleanWs()
+        }
+    }
+
+}
