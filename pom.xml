@@ -82,6 +82,12 @@
 			<version>${eureka-client-jersey3.version}</version>
 		</dependency>
 
+		<!-- Spring actuators -->
+		<dependency>
+			<groupId>org.springframework.boot</groupId>
+			<artifactId>spring-boot-starter-actuator</artifactId>
+		</dependency>
+
 		<!-- Logs -->
 		<dependency>
 			<groupId>org.springframework.boot</groupId>
